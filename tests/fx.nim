@@ -12,8 +12,8 @@ wrapClass javafx.scene.layout.StackPane:
   let children*: FXList
   proc newStackPane*: StackPane {.constructor.}
 
-wrapClass javafx.scene.Scene[T]:
-  proc newScene*(root: T, width, height: int): Scene {.constructor.}
+wrapClass javafx.scene.Scene:
+  proc newScene*(root: auto, width, height: int): Scene {.constructor.}
 
 wrapClass Stage{noimport}:
   var title*: cstring
