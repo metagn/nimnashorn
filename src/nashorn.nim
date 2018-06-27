@@ -2,8 +2,32 @@ import jsffi, macros, strutils
 
 from sequtils import toSeq
 
+var
+  nashornFile* {.importc: "__FILE__".}: cstring
+  nashornLine* {.importc: "__LINE__".}: cstring
+  nashornDir* {.importc: "__DIR__".}: cstring
+
 proc print* {.importc, varargs.}
 proc echo* {.importc, varargs.}
+
+proc jsArrayOf*[T](args: varargs[T]): JsAssoc[int, T] {.importcpp: "(@)".}
+proc jsArray*(args: varargs[typed]): JsAssoc[int, js] {.importcpp: "(@)".}
+
+template `[]`*(_: type js, args: varargs[untyped]) = jsArray(args)
+
+macro forEach*(name, iter, body: untyped): untyped =
+  let sym = $genSym(nskVar, $name)
+  let stmtl = newStmtList()
+  let iterSym = genSym(ident = "iterValue")
+  stmtl.add(newLetStmt(iterSym, iter))
+  stmtl.add(newTree(nnkPragma, newColonExpr(ident"emit",
+    newTree(nnkBracket,
+      newLit("for each (var " & sym & " in "),
+      iterSym,
+      newLit(") {")))))
+  for x in body: stmtl.add(x)
+  stmtl.add(newTree(nnkPragma, newColonExpr(ident"emit", newLit"}")))
+  result = newBlockStmt(stmtl)
 
 when defined(nashornScripting):
   proc readLine*(prompt: cstring): cstring {.importc.}
@@ -21,6 +45,15 @@ type
     toJavaClass(type T) is JavaClass
 {.pop.}
 
+template toJavaClass*(jc: JavaClass): JavaClass = jc
+
+proc javaToJs*(arg: auto): js {.importc: "Java.from".}
+
+proc jsToJava*(arg: auto, class: JavaClass): js {.importc: "Java.to".}
+
+template jsToJava*(arg: auto, T: typedesc): type(T) =
+  jsToJava[T](arg, toJavaClass(type(T)))
+
 template javaPackage*(packagePath: untyped): JavaPackage =
   var jpack: JavaPackage
   {.emit: [jpack, " = Packages.", astToStr(packagePath), ";"].}
@@ -32,7 +65,8 @@ template javaClass*(packagePath: untyped): JavaClass =
   {.emit: [jclass, " = Packages.", astToStr(packagePath), ";"].}
   jclass
 
-proc javaType*(name: cstring): JavaClass {.importcpp: "Java.type(#)".}
+proc javaType*(name: cstring): JavaClass {.importc: "Java.type".}
+proc extend*(jc: JavaClass, args: js): JavaClass {.importc: "Java.extend".}
 proc javaNew*(class: JavaClass): JsObject {.importcpp: "new (#)(@)", varargs.}
 
 converter typedescToJavaClass*(T: typedesc[JavaWrapper]): JavaClass {.inline.} =
