@@ -2,15 +2,13 @@ import jsffi, macros, strutils
 
 from sequtils import toSeq
 
-proc `&`*(a, b: cstring): cstring {.importcpp: "# + #".}
-
 proc print* {.importc, varargs.}
 proc echo* {.importc, varargs.}
 
 when defined(nashornScripting):
-  proc readLine*(line: cstring): cstring {.importc.}
-  proc readFile*(filename: cstring): cstring {.importc.}
-  proc exec*(program: cstring): cstring {.importcpp: "`$${#}`".}
+  proc readLine*(prompt: cstring): cstring {.importc.}
+  proc readFile*(filename: cstring): cstring {.importc: "readFully".}
+  proc exec*(command: cstring): cstring {.importcpp: "`$${#}`".} 
 
 type
   JavaPackage* = ref object
@@ -70,8 +68,6 @@ macro newJavaObject*(T: typedesc[JavaWrapper], args: varargs[untyped]): untyped 
   for x in args: call.add(x)
   result = newCall(bindSym"to", call, getTypeInst(T))
 
-template classmember* {.pragma.}
-
 proc afterLast(str: string, sub: char | set[char] | string): string {.compileTime.} =
   for a in rsplit(str, sub):
     return a
@@ -79,10 +75,10 @@ proc afterLast(str: string, sub: char | set[char] | string): string {.compileTim
 proc classWrapper(javaClass: string, typeName, body: NimNode): NimNode =
   result = newStmtList()
 
-  var nimType: tuple[name: NimNode, private: bool]
+  var nimType: tuple[name: NimNode, private, noimport: bool]
   case typeName.kind
   of nnkIdent:
-    nimType = (name: typeName, private: false)
+    nimType = (name: typeName, private: false, noimport: false)
   of nnkCurlyExpr:
     var temp = true
     for s in typeName:
@@ -90,12 +86,16 @@ proc classWrapper(javaClass: string, typeName, body: NimNode): NimNode =
         if s.kind == nnkIdent: nimType.name = s
         else: error("Invalid java class wrapper type name " & repr(s))
         temp = false
-      elif s.kind == nnkIdent and s.eqIdent"private":
-        nimType.private = true
+      elif s.kind == nnkIdent:
+        if s.eqIdent"private":
+          nimType.private = true
+        elif s.eqIdent"noimport":
+          nimType.noimport = true
   else:
     error("Don't know how to wrap java class to: " & repr(typeName))
 
   let name = nimType.name
+  let noimport = nimType.noimport
 
   let typeLhs = if nimType.private: name else: postfix(name, "*")
   let javaClassVariableName = ident($name & "Class")
@@ -110,9 +110,10 @@ proc classWrapper(javaClass: string, typeName, body: NimNode): NimNode =
       postfix(javaClassVariableName, "*")
   result.add(quote do:
     type `typeLhs` = ref object)
-  result.add(newLetStmt(jcvn, newCall(jtb, jcv)))
-  result.add(quote do:
-    proc `tjc`(_: `tpdsc`): JavaClass {.inline.} = `javaClassVariableName`)
+  if not noimport:
+    result.add(newLetStmt(jcvn, newCall(jtb, jcv)))
+    result.add(quote do:
+      proc `tjc`(_: `tpdsc`): JavaClass {.inline.} = `javaClassVariableName`)
 
   for statement in body:
     var staticMember, imported = false
@@ -123,8 +124,12 @@ proc classWrapper(javaClass: string, typeName, body: NimNode): NimNode =
       for i, p in statement.pragma:
         if p.kind == nnkIdent:
           if p.eqIdent"classmember":
+            if noimport:
+              error("Import needed for classmember " & $statement[0] & " but option noimport was on")
             staticMember = true
           elif p.eqIdent"constructor":
+            if noimport:
+              error("Import needed for constructor " & $statement[0] & " but option noimport was on")
             constructor = true
           elif p.eqIdent"importcpp" or p.eqIdent"importc":
             imported = true
@@ -146,13 +151,14 @@ proc classWrapper(javaClass: string, typeName, body: NimNode): NimNode =
           for i in 0 ..< idefs.len - 2:
             variables.add(idefs[i])
 
-        templ.body = newStmtList(newCall(bindSym"to",
-          newCall("javaNew", javaClassVariableName).add(variables), name))
+        templ.body = newStmtList(
+          newCall(bindSym"to", newCall("javaNew", javaClassVariableName)
+            .add(variables), newCall("type", name)))
 
         result.add(templ)
       else:
         statement.params.insert(1, newIdentDefs(ident"self", selfType, newEmptyNode()))
-        if not imported: statement.addPragma(ident"importcpp")
+        if not imported or statement.body.kind != nnkEmpty: statement.addPragma(ident"importcpp")
 
         result.add(statement)
     of nnkVarSection, nnkLetSection:
@@ -173,6 +179,8 @@ proc classWrapper(javaClass: string, typeName, body: NimNode): NimNode =
             template eq(a): untyped = prag.eqIdent(a)
             if prag.kind == nnkIdent:
               if eq"classmember":
+                if noimport:
+                  error("Import needed for classmember " & $statement[0] & " but option noimport was on")
                 staticMember = true
               elif eq"importcpp" or eq"importc":
                 imported = true
@@ -203,11 +211,19 @@ proc classWrapper(javaClass: string, typeName, body: NimNode): NimNode =
             let procz = newProc(n)
             procz.params = newTree(nnkFormalParams, t, newIdentDefs(ident"self", selfType))
             procz.pragma = copyNimNode(accessorPragmas)
-            if not imported: procz.pragma.add(newColonExpr(ident"importcpp", newLit("#." & $n)))
+            if not imported:
+              let propName = if n.kind == nnkPostfix: $n[1] else: $n
+              procz.pragma.add(newColonExpr(ident"importcpp", newLit("#." & propName)))
             result.add(procz)
 
           if setter:
-            let procz = newProc(newTree(nnkAccQuoted, n, ident"="))
+            let setterName =
+              if n.kind == nnkPostfix:
+                let (a, b) = unpackPostfix(n)
+                postfix(newTree(nnkAccQuoted, a, ident"="), b)
+              else:
+                newTree(nnkAccQuoted, n, ident"=")
+            let procz = newProc(setterName)
             procz.params = newTree(nnkFormalParams, getType(void),
               newIdentDefs(ident"self", selfType),
               newIdentDefs(ident"value", t))
@@ -227,8 +243,11 @@ macro wrapClass*(javaClass, body: untyped): untyped =
 
   var nimType: NimNode
   if javaClass.kind == nnkCurlyExpr:
-    nimType = javaClass[0]
-    while nimType.kind == nnkDotExpr: nimType = nimType[^1]
+    var x = javaClass[0]
+    while x.kind == nnkDotExpr: x = x[^1]
+    nimType = newTree(nnkCurlyExpr, x)
+    for i in 1 ..< javaClass.len:
+      nimType.add(javaClass[i])
   else:
     nimType = ident(javaClassName.afterLast('.'))
 

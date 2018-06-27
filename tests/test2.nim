@@ -1,4 +1,4 @@
-import nashorn
+import nashorn, jsffi
 
 wrapClass java.util.Date{private}:
   var year, month, day: int
