@@ -6,6 +6,22 @@ var
   nashornFile* {.importc: "__FILE__".}: cstring
   nashornLine* {.importc: "__LINE__".}: cstring
   nashornDir* {.importc: "__DIR__".}: cstring
+    nashornCommandLine* {.importc: "$OPTIONS".}: js
+
+when defined(nashornScripting):
+  var
+    args* {.importc: "$ARG".}: JsAssoc[int, cstring]
+    env* {.importc: "$ENV".}: JsAssoc[cstring, cstring]
+    latestOut* {.importc: "$OUT".}: cstring
+    latestErr* {.importc: "$ERR".}: cstring
+    latestExitCode* {.importc: "$EXIT".}: cstring
+
+  proc readLine*(prompt: cstring): cstring {.importc.}
+  proc readFile*(filename: cstring): cstring {.importc: "readFully".}
+  proc exec*(command: cstring): cstring {.importc: "$EXEC".}
+
+proc load*(script: cstring) {.importc.}
+proc loadWithNewGlobal*(script: cstring) {.importc.}
 
 proc print* {.importc, varargs.}
 proc echo* {.importc, varargs.}
@@ -29,11 +45,6 @@ macro forEach*(name, iter, body: untyped): untyped =
   stmtl.add(newTree(nnkPragma, newColonExpr(ident"emit", newLit"}")))
   result = newBlockStmt(stmtl)
 
-when defined(nashornScripting):
-  proc readLine*(prompt: cstring): cstring {.importc.}
-  proc readFile*(filename: cstring): cstring {.importc: "readFully".}
-  proc exec*(command: cstring): cstring {.importcpp: "`$${#}`".} 
-
 type
   JavaPackage* = ref object
   JavaClass* = ref object
@@ -48,7 +59,6 @@ type
 template toJavaClass*(jc: JavaClass): JavaClass = jc
 
 proc javaToJs*(arg: auto): js {.importc: "Java.from".}
-
 proc jsToJava*(arg: auto, class: JavaClass): js {.importc: "Java.to".}
 
 template jsToJava*(arg: auto, T: typedesc): type(T) =
@@ -68,6 +78,7 @@ template javaClass*(packagePath: untyped): JavaClass =
 proc javaType*(name: cstring): JavaClass {.importc: "Java.type".}
 proc extend*(jc: JavaClass, args: js): JavaClass {.importc: "Java.extend".}
 proc javaNew*(class: JavaClass): JsObject {.importcpp: "new (#)(@)", varargs.}
+proc super*(anon: js): js {.importc: "Java.super".}
 
 converter typedescToJavaClass*(T: typedesc[JavaWrapper]): JavaClass {.inline.} =
   mixin toJavaClass
