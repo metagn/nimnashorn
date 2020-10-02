@@ -6,4 +6,4 @@ type Date = ref object
 bindTypeToClass(Date, java.util.Date)
 
 let date = newJavaObject(Date)
-print "did you know that the current year is", date.year + 1900
+print "the current year is", date.year + 1900

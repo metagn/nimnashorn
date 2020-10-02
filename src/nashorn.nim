@@ -6,19 +6,19 @@ var
   nashornFile* {.importc: "__FILE__".}: cstring
   nashornLine* {.importc: "__LINE__".}: cstring
   nashornDir* {.importc: "__DIR__".}: cstring
-    nashornCommandLine* {.importc: "$OPTIONS".}: js
+  nashornCommandLine* {.importc: "$$OPTIONS".}: js
 
 when defined(nashornScripting):
   var
-    args* {.importc: "$ARG".}: JsAssoc[int, cstring]
-    env* {.importc: "$ENV".}: JsAssoc[cstring, cstring]
-    latestOut* {.importc: "$OUT".}: cstring
-    latestErr* {.importc: "$ERR".}: cstring
-    latestExitCode* {.importc: "$EXIT".}: cstring
+    args* {.importc: "$$ARG".}: JsAssoc[int, cstring]
+    env* {.importc: "$$ENV".}: JsAssoc[cstring, cstring]
+    latestOut* {.importc: "$$OUT".}: cstring
+    latestErr* {.importc: "$$ERR".}: cstring
+    latestExitCode* {.importc: "$$EXIT".}: cstring
 
   proc readLine*(prompt: cstring): cstring {.importc.}
   proc readFile*(filename: cstring): cstring {.importc: "readFully".}
-  proc exec*(command: cstring): cstring {.importc: "$EXEC".}
+  proc exec*(command: cstring): cstring {.importc: "$$EXEC".}
 
 proc load*(script: cstring) {.importc.}
 proc loadWithNewGlobal*(script: cstring) {.importc.}
@@ -41,9 +41,14 @@ macro forEach*(name, iter, body: untyped): untyped =
       newLit("for each (var " & sym & " in "),
       iterSym,
       newLit(") {")))))
+  stmtl.add(quote do:
+    var `name` {.importc: `sym`.}: js)
   for x in body: stmtl.add(x)
   stmtl.add(newTree(nnkPragma, newColonExpr(ident"emit", newLit"}")))
   result = newBlockStmt(stmtl)
+
+macro forEach*(nameIter: untyped{nkInfix}, body: untyped): untyped =
+  result = getAst(forEach(nameIter[1], nameIter[2], body))
 
 type
   JavaPackage* = ref object

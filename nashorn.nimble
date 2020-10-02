@@ -2,9 +2,10 @@
 
 version       = "0.1.0"
 author        = "hlaaftana"
-description   = "Nim bindings for Java Nashorn\'s JS API"
+description   = "Nim bindings for Java Nashorn's JS API"
 license       = "MIT"
 srcDir        = "src"
+backend       = "js"
 
 # Dependencies
 
@@ -23,3 +24,11 @@ task buildTestsRelease, "builds tests in release mode":
     let (dir, name, ext) = splitFile(f)
     if ext == ".nim":
       exec "nim js -d:release -o:bin/" & name & ".js tests/" & name
+
+task runBuiltTests, "runs test scripts in bin folder":
+  for f in listFiles("bin"):
+    let (dir, name, ext) = splitFile(f)
+    if ext == ".js":
+      try:
+        exec (if name == "fx": "jjs -fx " else: "jjs ") & (dir / (name & ext))
+      except: discard

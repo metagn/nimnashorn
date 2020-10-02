@@ -9,16 +9,16 @@ wrapClass java.util.Date{private}:
   converter toString: cstring {.importcpp.}
 
 let date = newDate()
-print "did you know that the current year is", date.year + 1990
+print "the current year is", date.year + 1990
 
-let askedDate = readLine("you should give me a date so i can parse it")
+let askedDate = readLine("Please input date.")
 try:
-  print "lol i think you gave me:", Date.parse(askedDate).toString()
+  print "Parsed date as: ", Date.parse(askedDate).toString()
 except:
-  print "wow. thanks for the crappy date. loser"
+  print "Invalid date"
 
 let
   date1 = newDate(99, 7, 4)
   date2 = newDate(7, 1, 30)
-print "hmm i wonder if", date2.toString(), "was after",
-  date1.toString() & cstring".... the truth of that is", date2.after(date1)
+print "Is", date2.toString(), "after",
+  date1.toString() & cstring"?", [false: "yes", true: "no"][date2.after(date1)]
